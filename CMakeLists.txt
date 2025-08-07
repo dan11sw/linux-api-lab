@@ -11,7 +11,7 @@ set(CMAKE_C_STANDARD)
 # Separator dir in WIN
 set(SEP_WIN "\\\\")
 
-# Path to lib DLL
+# Path to lib DLL 
 # set(PATH_LIB "${CMAKE_SOURCE_DIR}/lib")
 
 # Exe filename
