@@ -5,4 +5,4 @@
  Sources:
  
 - Book "The Linux Programming Interface" by Michael Kerrisk;
-- Your knowledge.
+- My knowledge.
