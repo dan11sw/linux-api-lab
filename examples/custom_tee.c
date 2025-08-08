@@ -28,6 +28,10 @@ void customTee(int fd_out) {
 }
 
 int main(int argc, char* argv[]) {
+    // Disabling buffering
+    setbuf(stdout, NULL);
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     size_t len;
     off_t offset;
     int fd;
