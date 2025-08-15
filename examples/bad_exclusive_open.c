@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
                     (long)getpid());
             }
 
-            fd = open(argv[1], O_EXCL | O_CREAT, 
+            fd = open(argv[1], O_WRONLY | O_CREAT, 
                     S_IRUSR | S_IWUSR);
             if(fd == -1) {
                 errExit("open");
