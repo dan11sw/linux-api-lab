@@ -1,121 +1,129 @@
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include "lib/tlpi_hdr.h"
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <gnu/libc-version.h>
+#include <dirent.h>
+#include <ctype.h>
+#include <stdbool.h>
 
-#ifndef BUF_SIZE
-#define BUF_SIZE 1024
-#endif // BUF_SIZE 
+enum {
+    BUF_SIZE = 100
+};
 
-void create_hole_file(char* filename) {
-    int openFlags = O_RDWR | O_CREAT;
+void write_and_hole(int fd, const char* title, const char* text, off_t offset_hole) {
+    if((fd == -1) || (title == NULL) || (text == NULL)) {
+        errExit("write_and_hole: invalid arguments\n");
+    }
+
+    size_t len = strlen(text);
+    if(write(fd, text, len) != len) {
+        errExit("couldn't write %s to file\n", title);
+    } else {
+        printf("Write in file %s: %s\n", title, text);
+    }
+
+    if(offset_hole) {
+        off_t offset = lseek(fd, offset_hole, SEEK_SET);
+
+        if(offset == -1) {
+            errExit("couldn't create hole in file\n");
+        }
+    }
+}
+
+void create_hole_file(const char* filepath) {
+    int openFlags = O_WRONLY | O_CREAT | O_TRUNC;
     mode_t filePerms = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP |
                 S_IROTH | S_IWOTH;
 
-    int fd = open(filename, openFlags, filePerms);
+    int fd = open(filepath, openFlags, filePerms);
     if(fd == -1) {
-        errExit("opening file %s", filename);
+        errExit("opening file %s\n", filepath);
     }
 
-    const char* start_text = "start\0";
-    size_t st_len = strlen(start_text);
-
-    if(write(fd, start_text, st_len) != st_len) {
-        close(fd);
-        errExit("couldn't write data to a file");
-    } else {
-        printf("Write text in hole file: %s\n", start_text);
-    }
-
-    // Create hole in file
-    off_t offset = lseek(fd, 1024 * 10, SEEK_SET);
-    if(offset == -1) {
-        close(fd);
-        errExit("couldn't create hole in file");
-    }
-
-    const char* middle_text = "middle\0";
-    size_t mt_end = strlen(middle_text);
-
-    if(write(fd, middle_text, mt_end) != mt_end) {
-        close(fd);
-        errExit("couldn't write data to a file");
-    } else {
-        printf("Write text in hole file: %s\n", middle_text);
-    }
-
-    offset = lseek(fd, 1024 * 20, SEEK_SET);
-    if(offset == -1) {
-        close(fd);
-        errExit("couldn't create hole in file");
-    }
-
-    const char* end_text = "end\0";
-    size_t et_len = strlen(end_text);
-
-    if(write(fd, end_text, et_len) != et_len) {
-        close(fd);
-        errExit("couldn't write data to a file");
-    }else {
-        printf("Write text in hole file: %s\n", end_text);
-    }
+    write_and_hole(fd, "start", "start", 1024 * 10);
+    write_and_hole(fd, "middle", "middle", 1024 * 20);
+    write_and_hole(fd, "end", "end", 0);
 
     close(fd);
     printf("The file with hole created\n");
 }
 
 int main(int argc, char* argv[]) {
-    if((argc != 3) || (strcmp(argv[1], "--help") == 0)) {
-        usageErr("%s old-file new-file or -h new-hole-file\n", argv[0]);
-    }
+    int inputFd, outputFd;
+    int openFlags, filePerms;
+    ssize_t numRead, numWritten;
 
-    // Created hole file
-    if((argc == 3) && (strcmp(argv[1], "-h") == 0)) {
+    char buf[BUF_SIZE];
+
+    if((argc < 2) || (strcmp(argv[1], "--help") == 0)) {
+        usageErr("%s old-file new-file | -h file-hole\n", argv[0]);
+    } else if((argc >= 3) && (strcmp(argv[1], "-h") == 0)) {
         create_hole_file(argv[2]);
         exit(EXIT_SUCCESS);
     }
 
-    int inputFd, outputFd, openFlags;
-    mode_t filePerms;
-    ssize_t numRead;
-    char buf[BUF_SIZE];
-
-    // Open file for input
     inputFd = open(argv[1], O_RDONLY);
-    if(inputFd == -1) {
-        errExit("opening file %s", argv[1]);
+    if(inputFd == -1){
+        errExit("opening file: %s\n", argv[1]);
     }
 
     openFlags = O_CREAT | O_WRONLY | O_TRUNC;
     filePerms = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP |
                 S_IROTH | S_IWOTH;
 
-    // Open file for output
     outputFd = open(argv[2], openFlags, filePerms);
     if(outputFd == -1) {
-        errExit("opening file %s", argv[2]);
+        errExit("opening file %s\n", argv[2]);
     }
 
-    // Transfer data while not go to end file (working with hole file)
-    while((numRead = read(inputFd, buf, BUF_SIZE)) > 0) {
-        if(write(outputFd, buf, numRead) != numRead) {
-            fatal("couldn't write whole buffer");
+    char ch;
+    off_t hole = 0;
+
+    while((numRead = read(inputFd, &ch, 1)) == 1) {
+        if(ch == '\0') {
+            hole++;
+        } else {
+            if(hole > 0) {
+                if(lseek(outputFd, hole, SEEK_CUR) == -1) {
+                    errExit("lseek\n");
+                }
+
+                hole = 0;
+            }
+
+            if(write(outputFd, &ch, 1) != 1) {
+                errExit("write\n");
+            }
         }
     }
 
     if(numRead == -1) {
-        errExit("read");
+        errExit("read\n");
+    }
+
+    if(hole > 0) {
+        if(lseek(outputFd, (hole - 1), SEEK_CUR) == -1) {
+            errExit("lseek\n");
+        }
+
+        char zero = '\0';
+        if(write(outputFd, &zero, 1) == -1) {
+            errExit("write\n");
+        }
     }
 
     if(close(inputFd) == -1) {
-        errExit("close input");
+        errExit("close input\n");
     }
 
     if(close(outputFd) == -1) {
-        errExit("close output");
+        errExit("close output\n");
     }
 
     printf("Data from file %s copied to file %s\n", argv[1], argv[2]);
-
-    return 0;
+    exit(EXIT_SUCCESS);
 }
